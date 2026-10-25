@@ -1,0 +1,10 @@
+<launch>
+<node name="talkerGoals" pkg="first_demo" type="talkerGoals" output="screen">
+	<param name="X_GOAL" value="2.5"/>
+	<param name="Y_GOAL" value="3.0"/>
+	<param name="T_GOAL" value="3.0"/>
+</node>
+<!--Node 2-->
+<node name="moveRobot" pkg="first_demo" type="moveRobot" output="screen">
+</node>
+</launch>
