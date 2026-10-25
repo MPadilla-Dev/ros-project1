@@ -1,10 +1,32 @@
 <launch>
-<node name="talkerGoals" pkg="first_demo" type="talkerGoals" output="screen">
-	<param name="X_GOAL" value="2.5"/>
-	<param name="Y_GOAL" value="3.0"/>
-	<param name="T_GOAL" value="3.0"/>
-</node>
-<!--Node 2-->
-<node name="moveRobot" pkg="first_demo" type="moveRobot" output="screen">
-</node>
+	<!--Node 1-->
+	<node name="Stage" pkg="stage_ros" type="stageros" args="$(find first_demo)/worlds/mundo_1robot.world"/>
+	<!--Node 2-->
+
+	<node name="talkerGoals" pkg="first_demo" type="talkerGoals" output="screen">
+		<param name="X_GOAL" value="8.0"/>
+		<param name="Y_GOAL" value="6.0"/>
+		<param name="T_GOAL" value="3.0"/>
+	</node>
+	
+	<!--Node 3-->
+	<node name="moveRobot" pkg="first_demo" type="moveRobot" output="screen">
+		<param name="ID_ROBOT" value="0" />
+		<param name="ALGOR" value="1" />		<!-- 1 = simple avoidance, 2 = potential fields -->
+		<param name="CRIT_DIST" value="0.8" />	<!-- 0.8 - 1.2 -->
+		<param name="D_OBJ" value="0.2" />		<!-- .2 - .6-->
+		<param name="V_MAX_DES" value="0.8" /> 	<!-- 0.8 - 1.2 -->
+		<param name="V_MAX_ROT" value="0.8" /> 	<!-- 0.8-1.1 -->
+		<param name="K_ROT_MIN" value="0.15" /> 	<!-- 0.05 - 0.15-->
+		<param name="K_ROT_MAX" value="0.3" /> 	<!-- 0.2-0.3 -->
+		<param name="ORI_ERROR" value="0.3" /> 	<!-- 0.3-0.6 -->
+		<param name="T_AVOID_OBS" value="1.0" />	<!-- 1.0 - 3.0 -->
+		<param name="DIST_LEADER" value="1.5" />	<!-- 1.5-2.5 -->
+		<param name="ROBOT_ROLE" value="0" />	<!-- 0 = Leader, 1 = Follower -->
+		<param name="ID_LEADER" value="1" />	<!-- ID of Leader -->
+		<param name="W_1" value="2" /> 			<!-- 1 - 2 -->
+		<param name="W_2" value="2.5" />		<!-- 2.5 - 4 -->
+		<param name="T_WAIT" value="250" />		<!-- 100 - 250 -->
+	</node>	
+	
 </launch>

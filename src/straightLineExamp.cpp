@@ -38,25 +38,25 @@ float codeVelMax;
   otherwise move ahead. 
 */
 void callbackLaser(const sensor_msgs::LaserScan& most_intense) {
-	  int length = most_intense.ranges.size(); 	
-    geometry_msgs::Twist cmd_vel;
+	int length = most_intense.ranges.size(); 	
+	geometry_msgs::Twist cmd_vel;
 
-    cmd_vel.linear.x = codeVelMax;
-    cmd_vel.linear.y = 0.0;
-    cmd_vel.linear.z = 0.0;
-    cmd_vel.angular.x = 0.0;
-    cmd_vel.angular.y = 0.0;
-    cmd_vel.angular.z = 0.0;
+	cmd_vel.linear.x = codeVelMax;
+	cmd_vel.linear.y = 0.0;
+	cmd_vel.linear.z = 0.0;
+	cmd_vel.angular.x = 0.0;
+	cmd_vel.angular.y = 0.0;
+	cmd_vel.angular.z = 0.0;
 
-    for(int i=0; i<length; i++){
-    	if(most_intense.ranges[i] < CRIT_DIST) {
-    	  cmd_vel.linear.x = 0.0;
-    		cmd_vel.angular.z = 1.0;
-        break;
-    	}
-    }
-    cmd_vel_pub.publish(cmd_vel);
-    ros::spinOnce(); 
+	for(int i=0; i<length; i++){
+		if(most_intense.ranges[i] < CRIT_DIST) {
+		  cmd_vel.linear.x = 0.0;
+			cmd_vel.angular.z = 1.0;
+		break;
+		}
+	}
+	cmd_vel_pub.publish(cmd_vel);
+	ros::spinOnce(); 
 }
 
 
@@ -82,10 +82,10 @@ int main(int argc, char **argv) {
 	ros::Time::init();
 
 	ros::NodeHandle nh;
-  ros::NodeHandle nh_private("~");
-  
-  nh_private.param<float>("velMax", codeVelMax, 1.0);
-  ROS_INFO("VMAX=%lf", codeVelMax);
+	ros::NodeHandle nh_private("~");
+
+	nh_private.param<float>("velMax", codeVelMax, 1.0);
+	ROS_INFO("VMAX=%lf", codeVelMax);
 
 
 
