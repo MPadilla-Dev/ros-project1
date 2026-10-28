@@ -13,7 +13,6 @@
 
 #include "nav_msgs/Odometry.h"
 
-
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -21,6 +20,8 @@
 using namespace std;
 using std::ostringstream;
 
+
+// --- Global Variables ---
 // structure for parameters
 struct parameters 
 {
@@ -40,21 +41,133 @@ struct parameters
 	double W_1;
 	double W_2;
 	int T_WAIT;
-};
+} param;
 
+struct robotController
+{
+	double Xr;
+	double Yr;
+	double Thetar;
+	double linear_vel;
+	double angular_vel;
+	double Xgoal;
+	double Ygoal;
+	sensor_msgs::LaserScan scan;
+	
+	bool isGoal = false;
+	bool isOdom = false;
+	bool isScan = false;
+
+} robot;
+
+enum State { FACE_GOAL, GO, ROTATE, FORWARD, DONE };
+State state = FACE_GOAL;
+
+// publisher of commands
+ros::Publisher cmd_vel_pub;
+float codeVelMax;
+ros::Time start;
+
+
+// --- Callback functions ---
 //Callback of the topic myGoals
 void Point_callback(const geometry_msgs::Point::ConstPtr& msg)
 {
-	ROS_INFO("Recieved  x:[%f], y:[%f]", msg->x, msg->y);
+	robot.Xgoal = msg->x;
+	robot.Ygoal = msg->y;
+	robot.isGoal = true;
+	ROS_INFO("Recieved  x:[%f], y:[%f]", robot.Xgoal, robot.Ygoal);
 }
 
+
+void callbackOdom(const nav_msgs::Odometry odom) {
+	robot.Xr = odom.pose.pose.position.x;
+	robot.Yr = odom.pose.pose.position.y;
+	robot.Thetar = tf::getYaw(odom.pose.pose.orientation);
+	robot.isOdom = true;
+}
+
+void callbackLaser(const sensor_msgs::LaserScan& most_intense) {
+	robot.scan = most_intense;
+	robot.isScan = true;
+}
+
+bool isObstacle(){
+	int length = robot.scan.ranges.size();
+	for(int i = 0; i<length; i++){
+		if(robot.scan.ranges[i] < param.CRIT_DIST) return true;
+	}
+	return false;
+}
+
+
+double rotVel(double ori_error){
+	if(fabs(ori_error) > param.ORI_ERROR)
+		return param.K_ROT_MAX * param.V_MAX_ROT * ori_error;
+	else
+		return param.K_ROT_MIN * param.V_MAX_ROT * ori_error;	
+}
+	
+void simpleAvoidanceController(){
+	// common calculations
+	double dx = robot.Xgoal - robot.Xr;
+	double dy = robot.Ygoal - robot.Yr;
+	double distance = sqrt(pow(dx, 2) + pow(dy, 2));
+	double thetaGoal = atan2(dy, dx);
+	double ori_error = atan2(sin(thetaGoal - robot.Thetar),
+                         cos(thetaGoal - robot.Thetar));	
+	geometry_msgs::Twist cmd_vel;
+	cmd_vel.linear.x = 0.0;
+	cmd_vel.linear.y = 0.0;
+	cmd_vel.linear.z = 0.0;
+	cmd_vel.angular.x = 0.0;
+	cmd_vel.angular.y = 0.0;
+	cmd_vel.angular.z = 0.0;
+	
+	switch(state) {
+	case FACE_GOAL:
+		cmd_vel.angular.z = rotVel(ori_error);
+		if(fabs(ori_error) < param.ORI_ERROR) state = GO;
+		ROS_INFO("[FACE_GOAL] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		break;
+	case GO:
+		cmd_vel.angular.z = rotVel(ori_error);
+		cmd_vel.linear.x = param.V_MAX_DES;
+		if(isObstacle()) state = ROTATE;
+		if(distance <= param.D_OBJ) state = DONE;
+		ROS_INFO("[GO] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		break;
+	case ROTATE:
+		cmd_vel.angular.z = param.V_MAX_ROT;
+		cmd_vel.linear.x = 0.0;
+		ROS_INFO("[ROTATE] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		if(!isObstacle()) {
+			state = FORWARD;
+			start = ros::Time::now(); // due to clock rate it will trigger 200 not 150
+		}
+		break;
+	case FORWARD:
+		cmd_vel.linear.x = param.V_MAX_DES;
+		if(ros::Time::now() - start > ros::Duration(param.T_AVOID_OBS)) state = FACE_GOAL;
+		ROS_INFO("[FORWARD] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		break;
+	case DONE:
+		ROS_INFO("[DONE] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		break;		
+	}
+	
+	cmd_vel_pub.publish(cmd_vel);	
+}
+
+
+// --- main ---
 int main(int argc, char **argv)
 {
 	
 	ros::init(argc, argv,"moveRobot");
+	ros::Time::init();
 	
 	// Read parameters and Print as Info
-	parameters param;
 	ros::NodeHandle nh_priv("~");
 	nh_priv.param<int>("ID_ROBOT", param.ID_ROBOT, 0);
 	nh_priv.param<int>("ALGOR", param.ALGOR, 1);
@@ -94,11 +207,43 @@ int main(int argc, char **argv)
 	
 	
 	//Created a nodehandle object
-	ros::NodeHandle node_obj;
-	//Create a publisher object
-	ros::Subscriber sub = node_obj.subscribe("/myGoals", 10, Point_callback);
-	//Spinning the node
-	ros::spin();
+	ros::NodeHandle nh;
+	//Build a string with topic name
+	std::ostringstream parent;
+	parent << "robot_" << param.ID_ROBOT;
+	
+	// odom subscriber
+    string odom_topic_name = parent.str();
+    odom_topic_name += "/odom";
+	ros::Subscriber odom_sub = nh.subscribe(odom_topic_name, 10, callbackOdom);
+	
+	// laser subscriber
+	string sonar_scan_topic_name = parent.str();
+	sonar_scan_topic_name += "/base_scan_1";
+	ros::Subscriber laser_sub = nh.subscribe(sonar_scan_topic_name, 1, callbackLaser);
+	
+	// goal subscriber
+	// string goal_topic_name = parent.str();
+	string goal_topic_name = "/myGoals";
+	ros::Subscriber goal_sub = nh.subscribe(goal_topic_name, 10, Point_callback);
+	
+	// velocity topic publisher
+	string cmd_vel_topic_name = parent.str();
+	cmd_vel_topic_name += "/cmd_vel";
+	cmd_vel_pub = nh.advertise<geometry_msgs::Twist>(cmd_vel_topic_name, 10);
+    
+	ros::Rate rate(10);           // 10 Hz control loop
+	while (ros::ok()) {
+		ros::spinOnce();          // run any waiting callbacks, then return
+		// wait for goal and odom
+		if (robot.isGoal && robot.isOdom && robot.isScan) simpleAvoidanceController();
+		rate.sleep();
+	}
+	
 	return 0;
+
+	
+	
+	
 }
 

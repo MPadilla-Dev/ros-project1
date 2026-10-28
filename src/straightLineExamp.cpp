@@ -70,7 +70,7 @@ void callbackOdom(const nav_msgs::Odometry odom) {
 	double current_z=odom.pose.pose.orientation.z;
     double current_w=odom.pose.pose.orientation.w;
 	double orientationr=(2.0*atan2(current_z,current_w));
-	//ROS_INFO("Odom X=%lf, Y=%lf, ori=%lf\n", Xr, Yr,orientationr);
+	ROS_INFO("Odom X=%lf, Y=%lf, ori=%lf\n", Xr, Yr,orientationr);
 }
 
 
