@@ -60,12 +60,12 @@ struct robotController
 
 } robot;
 
-enum State { FACE_GOAL, GO, ROTATE, FORWARD, DONE };
-State state = FACE_GOAL;
+enum State { WAIT_GOAL, FACE_GOAL, GO, ROTATE, FORWARD, DONE };
+State state = WAIT_GOAL;
 
 // publisher of commands
 ros::Publisher cmd_vel_pub;
-float codeVelMax;
+ros::Publisher position_pub;
 ros::Time start;
 
 
@@ -81,9 +81,16 @@ void Point_callback(const geometry_msgs::Point::ConstPtr& msg)
 
 
 void callbackOdom(const nav_msgs::Odometry odom) {
+	// read the pose
 	robot.Xr = odom.pose.pose.position.x;
 	robot.Yr = odom.pose.pose.position.y;
 	robot.Thetar = tf::getYaw(odom.pose.pose.orientation);
+	// publish your position
+	geometry_msgs::Point myPosition;
+	myPosition.x = robot.Xr;
+	myPosition.y = robot.Yr;
+	position_pub.publish(myPosition);
+	// confirm Odom was received
 	robot.isOdom = true;
 }
 
@@ -125,22 +132,25 @@ void simpleAvoidanceController(){
 	cmd_vel.angular.z = 0.0;
 	
 	switch(state) {
+	case WAIT_GOAL:
+		if(robot.isGoal && robot.isOdom && robot.isScan) state = FACE_GOAL;
+		break;
 	case FACE_GOAL:
 		cmd_vel.angular.z = rotVel(ori_error);
 		if(fabs(ori_error) < param.ORI_ERROR) state = GO;
-		ROS_INFO("[FACE_GOAL] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		ROS_INFO("%d[FACE_GOAL] distance=%lf, angle=%lf\n", param.ID_ROBOT, distance, ori_error * 180 / M_PI);
 		break;
 	case GO:
 		cmd_vel.angular.z = rotVel(ori_error);
 		cmd_vel.linear.x = param.V_MAX_DES;
 		if(isObstacle()) state = ROTATE;
-		if(distance <= param.D_OBJ) state = DONE;
-		ROS_INFO("[GO] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		if(distance < param.D_OBJ) state = DONE;
+		ROS_INFO("%d[GO] distance=%lf, angle=%lf\n", param.ID_ROBOT, distance, ori_error * 180 / M_PI);
 		break;
 	case ROTATE:
 		cmd_vel.angular.z = param.V_MAX_ROT;
 		cmd_vel.linear.x = 0.0;
-		ROS_INFO("[ROTATE] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		ROS_INFO("%d[ROTATE] distance=%lf, angle=%lf\n", param.ID_ROBOT, distance, ori_error * 180 / M_PI);
 		if(!isObstacle()) {
 			state = FORWARD;
 			start = ros::Time::now(); // due to clock rate it will trigger 200 not 150
@@ -149,10 +159,15 @@ void simpleAvoidanceController(){
 	case FORWARD:
 		cmd_vel.linear.x = param.V_MAX_DES;
 		if(ros::Time::now() - start > ros::Duration(param.T_AVOID_OBS)) state = FACE_GOAL;
-		ROS_INFO("[FORWARD] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		if(isObstacle()) {
+			state = FORWARD;
+			start = ros::Time::now();
+		}
+		ROS_INFO("%d[FORWARD] distance=%lf, angle=%lf\n", param.ID_ROBOT, distance, ori_error * 180 / M_PI);
 		break;
 	case DONE:
-		ROS_INFO("[DONE] distance=%lf, angle=%lf\n", distance, ori_error * 180 / M_PI);
+		ROS_INFO("%d[DONE] distance=%lf, angle=%lf\n", param.ID_ROBOT, distance, ori_error * 180 / M_PI);
+		if(distance >= param.D_OBJ) state = FACE_GOAL;
 		break;		
 	}
 	
@@ -171,20 +186,20 @@ int main(int argc, char **argv)
 	ros::NodeHandle nh_priv("~");
 	nh_priv.param<int>("ID_ROBOT", param.ID_ROBOT, 0);
 	nh_priv.param<int>("ALGOR", param.ALGOR, 1);
-	nh_priv.param<double>("CRIT_DIST", param.CRIT_DIST, 1.2);
-	nh_priv.param<double>("D_OBJ", param.D_OBJ, 0.6);
+	nh_priv.param<double>("CRIT_DIST", param.CRIT_DIST, 0.8);
+	nh_priv.param<double>("D_OBJ", param.D_OBJ, 0.2);
 	nh_priv.param<double>("V_MAX_DES", param.V_MAX_DES, 1.2);
 	nh_priv.param<double>("V_MAX_ROT", param.V_MAX_ROT, 1.1);
-	nh_priv.param<double>("K_ROT_MIN", param.K_ROT_MIN, 0);
-	nh_priv.param<double>("K_ROT_MAX", param.K_ROT_MAX, 0);
-	nh_priv.param<double>("ORI_ERROR", param.ORI_ERROR, 0);
-	nh_priv.param<double>("T_AVOID_OBS", param.T_AVOID_OBS, 0);
-	nh_priv.param<double>("DIST_LEADER", param.DIST_LEADER, 0);
+	nh_priv.param<double>("K_ROT_MIN", param.K_ROT_MIN, 0.15);
+	nh_priv.param<double>("K_ROT_MAX", param.K_ROT_MAX, 0.3);
+	nh_priv.param<double>("ORI_ERROR", param.ORI_ERROR, 0.15);
+	nh_priv.param<double>("T_AVOID_OBS", param.T_AVOID_OBS, 1.0);
+	nh_priv.param<double>("DIST_LEADER", param.DIST_LEADER, 1.5);
 	nh_priv.param<int>("ROBOT_ROLE", param.ROBOT_ROLE, 0);
 	nh_priv.param<int>("ID_LEADER", param.ID_LEADER, 0);
-	nh_priv.param<double>("W_1", param.W_1, 0);
-	nh_priv.param<double>("W_2", param.W_2, 0);
-	nh_priv.param<int>("T_WAIT", param.T_WAIT, 225);
+	nh_priv.param<double>("W_1", param.W_1, 2);
+	nh_priv.param<double>("W_2", param.W_2, 2.5);
+	nh_priv.param<int>("T_WAIT", param.T_WAIT, 250);
 
 	ROS_INFO("ID_ROBOT=%d", param.ID_ROBOT);
 	ROS_INFO("ALGOR=%d", param.ALGOR);
@@ -222,28 +237,46 @@ int main(int argc, char **argv)
 	sonar_scan_topic_name += "/base_scan_1";
 	ros::Subscriber laser_sub = nh.subscribe(sonar_scan_topic_name, 1, callbackLaser);
 	
-	// goal subscriber
-	// string goal_topic_name = parent.str();
-	string goal_topic_name = "/myGoals";
-	ros::Subscriber goal_sub = nh.subscribe(goal_topic_name, 10, Point_callback);
+	// position publisher
+	string position_topic_name = parent.str();
+	position_topic_name += "/position";
+	position_pub = nh.advertise<geometry_msgs::Point>(position_topic_name, 1);
 	
-	// velocity topic publisher
+	// velocity publisher
 	string cmd_vel_topic_name = parent.str();
 	cmd_vel_topic_name += "/cmd_vel";
 	cmd_vel_pub = nh.advertise<geometry_msgs::Twist>(cmd_vel_topic_name, 10);
+	
+	// goal subscriber FOLLOWER OR LEADER
+	string goal_topic_name = "";
+	ros::Subscriber goal_sub;
+	// if leader
+	if(param.ROBOT_ROLE == 0) {
+		// sub to talkerGoals
+		goal_topic_name = "/myGoals";
+		goal_sub = nh.subscribe(goal_topic_name, 10, Point_callback);		
+	}
+	else if(param.ROBOT_ROLE == 1) {
+		// sub to leader position
+		std::ostringstream leader;
+		leader << "robot_" << param.ID_LEADER;
+		goal_topic_name = leader.str() + "/position";
+		goal_sub = nh.subscribe(goal_topic_name, 1, Point_callback);
+		// if follower D_OBJ = DIST_LEADER instead
+		param.D_OBJ = param.DIST_LEADER;
+	}
     
 	ros::Rate rate(10);           // 10 Hz control loop
 	while (ros::ok()) {
 		ros::spinOnce();          // run any waiting callbacks, then return
 		// wait for goal and odom
-		if (robot.isGoal && robot.isOdom && robot.isScan) simpleAvoidanceController();
+		if(param.ALGOR == 1) simpleAvoidanceController();
+		
 		rate.sleep();
 	}
 	
 	return 0;
 
-	
-	
 	
 }
 
